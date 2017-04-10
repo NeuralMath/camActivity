@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">camActivity</string>
+    <string name="callCam">CAMÉRA</string>
+    <string name="callGal">GALLERIE</string>
+</resources>
