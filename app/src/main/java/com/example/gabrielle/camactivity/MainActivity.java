@@ -19,6 +19,7 @@ import android.graphics.Color;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
+import android.hardware.Camera;
 import android.net.Uri;
 import android.os.Environment;
 import android.provider.MediaStore;
@@ -27,14 +28,33 @@ import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.TextView;
 import android.widget.Toast;
 import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+/* A mettre dans le guide d'utilisation
+Ne pas utiliser de crayons / stylos de couleur (juste noir et gris foncé - plomb)
+Éviter d'écrire pale au crayon plomb
+
+Luminosité optimale requise
+
+Éviter de couvrir l'équation avec l'ombre du telephone (VRM IMPORTANT)
+
+Favoriser la lumière à la place de la proximité (Ça fait vrm toute la différence)
+
+ */
 
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity
+{
 
     File file;
     Uri uri;
@@ -42,8 +62,11 @@ public class MainActivity extends AppCompatActivity {
     final int RequestPermissionCode=1;
     String fileName = "";
 
+    Boolean ruledPaper = false;
     Button camButton;
     Button galButton;
+
+    double camRes = 0; //To store the camera resolution
 
     ImageView imageView1; //Pour tester la fonction toBinary(bitmapGraysacle)
 
@@ -55,6 +78,21 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+
+/*      //A remettre dans le code final, verifie preferences de papier pour avoir une valeur threshold optimale
+        Intent i = getIntent();
+        if(i.getBooleanExtra("FEUILLE", true))
+        {
+            ruledPaper = false;
+        }
+        else
+        {
+            if(i.getBooleanExtra("FEUILLE", false))
+            {
+                ruledPaper = true;
+            }
+        }
+*/
         imageView1 = (ImageView) findViewById(R.id.imageView1); //Pour tester la fonction toBinary(bitmapGraysacle)
 
         //Button to launch cam intent
@@ -81,7 +119,30 @@ public class MainActivity extends AppCompatActivity {
         {
             RequestRuntimePermission();
         }
-        Bundle extras;
+
+//Code to check camera resolution in megapixels
+        //http://stackoverflow.com/questions/19463858/how-to-get-front-and-back-cameras-megapixel-that-is-designed-for-android-device
+
+           Camera camera=Camera.open(0);
+           android.hardware.Camera.Parameters params = camera.getParameters();
+           List sizes = params.getSupportedPictureSizes();
+           Camera.Size  result = null;
+
+           ArrayList<Integer> arrayListForWidth = new ArrayList<Integer>();
+           ArrayList<Integer> arrayListForHeight = new ArrayList<Integer>();
+
+           for (int i=0;i<sizes.size();i++){
+               result = (Camera.Size) sizes.get(i);
+               arrayListForWidth.add(result.width);
+               arrayListForHeight.add(result.height);
+           }
+           if(arrayListForWidth.size() != 0 && arrayListForHeight.size() != 0)
+           {
+               camRes = ((Collections.max(arrayListForWidth)) * (Collections.max(arrayListForHeight))) / 1024000;
+           }
+           camera.release();
+           arrayListForWidth.clear();
+           arrayListForHeight.clear();
     }
 //Request permission for camera if it's not allowed yet
     private void RequestRuntimePermission()
@@ -123,7 +184,6 @@ public class MainActivity extends AppCompatActivity {
         startActivityForResult(Intent.createChooser(galIntent, "Select image from gallery"),2);
 
     }
-
     private void CameraOpen()
     {
         camIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
@@ -149,10 +209,6 @@ public class MainActivity extends AppCompatActivity {
 
             cropIntent.setDataAndType(picUri, "image/*");
             cropIntent.putExtra("crop", "true");
-            cropIntent.putExtra("aspectX", 4);
-            cropIntent.putExtra("aspectY", 1);
-            cropIntent.putExtra("outputX", 1200);
-            cropIntent.putExtra("outputY", 300);
             cropIntent.putExtra("scaleUpIfNeeded", true);
             cropIntent.putExtra("return-data", true);
 
@@ -166,14 +222,13 @@ public class MainActivity extends AppCompatActivity {
         }
 
     }
-
-
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data)
     {
+
         if(requestCode==0 && resultCode==RESULT_OK)
         {
-             CropImage(uri);
+            CropImage(uri);
         }
         else
         {
@@ -190,16 +245,19 @@ public class MainActivity extends AppCompatActivity {
         {
             Bundle extras = data.getExtras();
             bitmap= extras.getParcelable("data");
-           // imageView1.setImageBitmap(bitmap);
-
-            bitmap = toGrayscale(bitmap);
-            // imageView1.setImageBitmap(bitmap);
-
-            bitmap = toBinary(bitmap);
-            //imageView1.setImageBitmap(bitmap); //Pour tester la fonction toBinary(bitmapGraysacle)
         }
     }
-
+ //When you get back from cropping and choosingtaking picture
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if(bitmap != null)
+        {
+            bitmap = toGrayscale(bitmap);
+            bitmap = toBinary(bitmap);
+            imageView1.setImageBitmap(bitmap); //Pour tester la fonction toBinary(bitmapGraysacle)
+        }
+    }
     /**
      * Convert picture taken(and cropped) to a grayscale bitmap
      * @param bmpOriginal le bitmap qui sort de la camera/qui vient d'etre rognée
@@ -214,11 +272,14 @@ public class MainActivity extends AppCompatActivity {
         Bitmap bmpGrayscale = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmpGrayscale);
         Paint paint = new Paint();
+
         ColorMatrix cm = new ColorMatrix();
         cm.setSaturation(0);
         ColorMatrixColorFilter f = new ColorMatrixColorFilter(cm);
+
         paint.setColorFilter(f);
         c.drawBitmap(bmpOriginal, 0, 0, paint);
+
         return bmpGrayscale;
     }
 
@@ -229,35 +290,46 @@ public class MainActivity extends AppCompatActivity {
      */
     public Bitmap toBinary(Bitmap bmpGrayscale) //http://stackoverflow.com/questions/20299264/android-convert-grayscale-to-binary-image
     {
-        int width, height, threshold;
+        int width, height, threshold; //threshold = minimum value a pixel needs to be black (kept as text)
         height = bmpGrayscale.getHeight();
         width = bmpGrayscale.getWidth();
-        threshold = 156; //Best overall value (tested) with optimal lighting
+
+        if(camRes<=8 && ruledPaper == false) //older cameras (8MP and less) user chose blank paper as default
+        {
+            threshold = 127; //Tested w/GS3 8MP camera
+        }
+        else
+        {
+            if(camRes<=8 && ruledPaper == true) //older cameras (8MP and less) user chose ruled paper as default
+            {
+                threshold = 112; //Tested w/GS3 8MP camera
+            }
+
+            else //Cameras over 8MP
+            {
+                threshold = 156; //Best overall value with good lighting(tested w/ GS6 16MP camera)
+            }
+        }
         Bitmap bmpBinary = Bitmap.createBitmap(bmpGrayscale);
 
-        for(int x = 0; x < width; ++x) {
-            for(int y = 0; y < height; ++y) {
+        for(int x = 0; x < width; ++x)
+        {
+            for(int y = 0; y < height; ++y)
+            {
                 // get one pixel color
                 int pixel = bmpGrayscale.getPixel(x, y);
                 int gray = (int)(Color.red(pixel) * 0.3 + Color.green(pixel) * 0.59 + Color.blue(pixel) * 0.11);
 
                 //get binary value
-                if(gray < threshold){
-                    bmpBinary.setPixel(x, y, 0xFF000000);
-                } else{
-                    bmpBinary.setPixel(x, y, 0xFFFFFFFF);
+                if(gray < threshold)
+                {
+                    bmpBinary.setPixel(x, y, 0xFF000000); //make pixel black
+                } else
+                {
+                    bmpBinary.setPixel(x, y, 0xFFFFFFFF); //make pixel white
                 }
             }
         }
         return bmpBinary;
     }
-
-    /**
-     * @return bitmap noir et blanc / bitmap binaire / threshold bitmap
-     */
-    private Bitmap getThresholdBitmap()
-    {
-        return bitmap;
-    }
-
 }
